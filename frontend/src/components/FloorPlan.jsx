@@ -1,274 +1,210 @@
-/**
- * FloorPlan Component
- * =====================
- * Interactive SVG top-view office layout showing 3 rooms with
- * animated fans (spin when ON) and glowing lights (glow when ON).
- * Clicking a device on the floor plan toggles its state.
- *
- * Layout matches the problem set diagram:
- * ┌─────────────┬─────────────┐
- * │             │ Work Room 1 │
- * │  Drawing    ├─────────────┤
- * │  Room       │ Work Room 2 │
- * └─────────────┴─────────────┘
- *        ENTRY
- */
+import { useDeviceData } from "../hooks/useDeviceData";
 
-import { useMemo } from 'react';
-
-/** Room layout definitions (SVG coordinates) */
-const LAYOUT = {
-  drawingroom: { x: 20, y: 20, w: 230, h: 260, label: 'Drawing Room', sub: 'Waiting Area' },
-  workroom1:   { x: 260, y: 20, w: 220, h: 125, label: 'Work Room 1', sub: 'Employees' },
-  workroom2:   { x: 260, y: 155, w: 220, h: 125, label: 'Work Room 2', sub: 'Employees' },
-};
-
-/** Device positions within each room (relative to room origin) */
-const DEVICE_POSITIONS = {
+// Device coordinate mapping relative to each room (percentage values)
+const ROOM_LAYOUTS = {
   drawingroom: {
-    'fan-1':   { x: 70,  y: 80 },
-    'fan-2':   { x: 170, y: 180 },
-    'light-1': { x: 40,  y: 50 },
-    'light-2': { x: 190, y: 50 },
-    'light-3': { x: 115, y: 220 },
+    color: "border-teal-500/30 dark:border-teal-400/20",
+    bg: "bg-teal-500/5 dark:bg-teal-400/5",
+    accent: "text-teal-600 dark:text-teal-400",
+    devices: [
+      { id: "drawingroom-fan-1", name: "Fan 1", x: 25, y: 35, type: "fan" },
+      { id: "drawingroom-fan-2", name: "Fan 2", x: 75, y: 35, type: "fan" },
+      { id: "drawingroom-light-1", name: "Light 1", x: 20, y: 70, type: "light" },
+      { id: "drawingroom-light-2", name: "Light 2", x: 50, y: 70, type: "light" },
+      { id: "drawingroom-light-3", name: "Light 3", x: 80, y: 70, type: "light" },
+    ]
   },
   workroom1: {
-    'fan-1':   { x: 70,  y: 55 },
-    'fan-2':   { x: 160, y: 55 },
-    'light-1': { x: 40,  y: 25 },
-    'light-2': { x: 110, y: 95 },
-    'light-3': { x: 185, y: 25 },
+    color: "border-indigo-500/30 dark:border-indigo-400/20",
+    bg: "bg-indigo-500/5 dark:bg-indigo-400/5",
+    accent: "text-indigo-600 dark:text-indigo-400",
+    devices: [
+      { id: "workroom1-fan-1", name: "Fan 1", x: 30, y: 30, type: "fan" },
+      { id: "workroom1-fan-2", name: "Fan 2", x: 70, y: 30, type: "fan" },
+      { id: "workroom1-light-1", name: "Light 1", x: 20, y: 70, type: "light" },
+      { id: "workroom1-light-2", name: "Light 2", x: 50, y: 70, type: "light" },
+      { id: "workroom1-light-3", name: "Light 3", x: 80, y: 70, type: "light" },
+    ]
   },
   workroom2: {
-    'fan-1':   { x: 70,  y: 55 },
-    'fan-2':   { x: 160, y: 55 },
-    'light-1': { x: 40,  y: 25 },
-    'light-2': { x: 110, y: 95 },
-    'light-3': { x: 185, y: 25 },
-  },
+    color: "border-violet-500/30 dark:border-violet-400/20",
+    bg: "bg-violet-500/5 dark:bg-violet-400/5",
+    accent: "text-violet-600 dark:text-violet-400",
+    devices: [
+      { id: "workroom2-fan-1", name: "Fan 1", x: 30, y: 30, type: "fan" },
+      { id: "workroom2-fan-2", name: "Fan 2", x: 70, y: 30, type: "fan" },
+      { id: "workroom2-light-1", name: "Light 1", x: 20, y: 70, type: "light" },
+      { id: "workroom2-light-2", name: "Light 2", x: 50, y: 70, type: "light" },
+      { id: "workroom2-light-3", name: "Light 3", x: 80, y: 70, type: "light" },
+    ]
+  }
 };
 
-/** Furniture positions (tables, chairs) — decorative only */
-const FURNITURE = {
-  drawingroom: [
-    // Sofa (horizontal rectangle)
-    { type: 'rect', x: 50, y: 115, w: 60, h: 20 },
-    { type: 'rect', x: 140, y: 115, w: 60, h: 20 },
-    // Coffee table
-    { type: 'rect', x: 85, y: 140, w: 60, h: 25 },
-  ],
-  workroom1: [
-    // Desk row
-    { type: 'rect', x: 35, y: 60, w: 70, h: 28 },
-    { type: 'rect', x: 120, y: 60, w: 70, h: 28 },
-  ],
-  workroom2: [
-    // Desk row
-    { type: 'rect', x: 35, y: 60, w: 70, h: 28 },
-    { type: 'rect', x: 120, y: 60, w: 70, h: 28 },
-  ],
-};
+export default function FloorPlan() {
+  const { devices, toggleDevice } = useDeviceData();
 
-export default function FloorPlan({ devices, onToggle }) {
-  /** Map devices by their suffix within each room for quick lookup */
-  const deviceMap = useMemo(() => {
-    const map = {};
-    devices.forEach((d) => {
-      map[d.id] = d;
-    });
-    return map;
-  }, [devices]);
+  // Helper to find a device state from the live context list
+  const getDeviceState = (id) => {
+    return devices.find(d => d.id === id) || { status: "off", wattage: 0 };
+  };
+
+  // Renders the fan SVG icon
+  const renderFanIcon = (isOn) => (
+    <svg 
+      className={`w-6 h-6 ${isOn ? "fan-spin text-amber-500" : "text-gray-400 dark:text-gray-600"}`} 
+      viewBox="0 0 24 24" 
+      fill="none" 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round"
+    >
+      <path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" />
+      <path d="M12 9c0-3.5 1.5-5 3-5s2 1.5 2 3c0 2-2.5 4-5 4" />
+      <path d="M15 12c3.5 0 5 1.5 5 3s-1.5 2-3 2c-2 0-4-2.5-4-5" />
+      <path d="M12 15c0 3.5-1.5 5-3 5s-2-1.5-2-3c0-2 2.5-4 5-4" />
+      <path d="M9 12c-3.5 0-5-1.5-5-3s1.5-2 3-2c2 0 4 2.5 4 5" />
+    </svg>
+  );
+
+  // Renders the light SVG icon
+  const renderLightIcon = (isOn) => (
+    <svg 
+      className={`w-6 h-6 transition-all duration-300 ${isOn ? "text-amber-300 scale-110 drop-shadow-[0_0_8px_rgba(251,191,36,0.8)]" : "text-gray-400 dark:text-gray-600"}`} 
+      viewBox="0 0 24 24" 
+      fill={isOn ? "currentColor" : "none"} 
+      stroke="currentColor" 
+      strokeWidth="2" 
+      strokeLinecap="round" 
+      strokeLinejoin="round"
+    >
+      <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A5 5 0 0 0 8 8c0 1 .4 2.5 1.5 3.5.7.8 1.3 1.5 1.5 2.5" />
+      <path d="M9 18h6" />
+      <path d="M10 22h4" />
+    </svg>
+  );
 
   return (
-    <div className="card floor-plan">
-      <div className="card-header">
-        <h2>🏢 Office Layout</h2>
-        <span className="badge badge-cyan">Top View</span>
+    <div className="glass-panel rounded-3xl p-6 shadow-xl relative overflow-hidden flex flex-col h-full min-h-[460px]">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900 dark:text-white">Office Interactive Layout</h2>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Real-time room layout. Click any device to toggle.</p>
+        </div>
+        <div className="flex gap-4 text-xs font-semibold text-gray-600 dark:text-gray-400">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-full bg-amber-400 light-glow inline-block"></span>
+            <span>Active Light</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <svg className="w-4 h-4 text-amber-500 fan-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 12m-3 0a3 3 0 1 0 6 0a3 3 0 1 0 -6 0" /><path d="M12 9c0-3.5 1.5-5 3-5s2 1.5 2 3c0 2-2.5 4-5 4" /></svg>
+            <span>Active Fan</span>
+          </div>
+        </div>
       </div>
 
-      <div className="floor-plan-svg-container">
-        <svg viewBox="0 0 500 320" xmlns="http://www.w3.org/2000/svg">
-          {/* Background */}
-          <rect x="0" y="0" width="500" height="320" fill="#080c16" />
+      {/* Grid Floor Plan Wrapper */}
+      <div className="flex-1 grid grid-cols-1 md:grid-cols-5 gap-4 min-h-[300px]">
+        {/* Drawing Room (Col span 2) */}
+        <div className={`relative md:col-span-2 border-2 rounded-2xl p-4 transition-all duration-300 ${ROOM_LAYOUTS.drawingroom.color} ${ROOM_LAYOUTS.drawingroom.bg}`}>
+          {/* Room Title */}
+          <div className="absolute top-3 left-4 flex flex-col z-10">
+            <span className={`text-sm font-bold uppercase tracking-wider ${ROOM_LAYOUTS.drawingroom.accent}`}>Drawing Room</span>
+            <span className="text-[10px] text-gray-400 dark:text-gray-500">Waiting Area</span>
+          </div>
 
-          {/* Grid lines (subtle) */}
-          <defs>
-            <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-              <path d="M 20 0 L 0 0 0 20" fill="none" stroke="rgba(255,255,255,0.015)" strokeWidth="0.5" />
-            </pattern>
-            {/* Light glow filter */}
-            <filter id="light-glow">
-              <feGaussianBlur stdDeviation="4" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-            {/* Fan glow filter */}
-            <filter id="fan-glow">
-              <feGaussianBlur stdDeviation="2" result="blur" />
-              <feMerge>
-                <feMergeNode in="blur" />
-                <feMergeNode in="SourceGraphic" />
-              </feMerge>
-            </filter>
-          </defs>
-          <rect x="0" y="0" width="500" height="320" fill="url(#grid)" />
-
-          {/* Render rooms */}
-          {Object.entries(LAYOUT).map(([roomId, room]) => (
-            <g key={roomId} className="fp-room">
-              {/* Room fill */}
-              <rect
-                x={room.x} y={room.y}
-                width={room.w} height={room.h}
-                className="fp-room-fill"
-                rx="3"
-              />
-              {/* Room label */}
-              <text
-                x={room.x + room.w / 2}
-                y={room.y + 16}
-                className="fp-room-label"
+          {/* Render devices inside Drawing Room */}
+          {ROOM_LAYOUTS.drawingroom.devices.map((device) => {
+            const state = getDeviceState(device.id);
+            const isOn = state.status === "on";
+            
+            return (
+              <button
+                key={device.id}
+                onClick={() => toggleDevice(device.id)}
+                className={`absolute transform -translate-x-1/2 -translate-y-1/2 p-2.5 rounded-full transition-all duration-300 cursor-pointer outline-none border focus:ring-2 focus:ring-amber-400/50 group
+                  ${isOn 
+                    ? "bg-amber-100/80 border-amber-300 dark:bg-amber-950/40 dark:border-amber-700/60 light-glow" 
+                    : "bg-white/80 border-gray-200 hover:border-gray-300 dark:bg-gray-800/80 dark:border-gray-700 hover:dark:border-gray-600"
+                  }`}
+                style={{ left: `${device.x}%`, top: `${device.y}%` }}
+                title={`${device.name} (${state.status.toUpperCase()})`}
               >
-                {room.label}
-              </text>
-              <text
-                x={room.x + room.w / 2}
-                y={room.y + 27}
-                className="fp-room-sub"
-              >
-                {room.sub}
-              </text>
-
-              {/* Furniture */}
-              {FURNITURE[roomId]?.map((f, i) => (
-                <rect
-                  key={i}
-                  x={room.x + f.x}
-                  y={room.y + f.y}
-                  width={f.w}
-                  height={f.h}
-                  rx="2"
-                  className="fp-furniture"
-                />
-              ))}
-
-              {/* Devices */}
-              {DEVICE_POSITIONS[roomId] && Object.entries(DEVICE_POSITIONS[roomId]).map(([suffix, pos]) => {
-                const deviceId = `${roomId}-${suffix}`;
-                const device = deviceMap[deviceId];
-                if (!device) return null;
-
-                const absX = room.x + pos.x;
-                const absY = room.y + pos.y;
-                const isOn = device.status === 'on';
-
-                if (device.type === 'fan') {
-                  return (
-                    <g
-                      key={deviceId}
-                      className="fp-device"
-                      onClick={() => onToggle(deviceId)}
-                    >
-                      <title>{`${device.name} (${isOn ? 'ON' : 'OFF'}) — Click to toggle`}</title>
-                      {/* Invisible hit area for easier clicking */}
-                      <circle cx={absX} cy={absY} r="20" fill="transparent" />
-                      {/* Fan housing */}
-                      <circle
-                        cx={absX} cy={absY} r="14"
-                        className={`fp-fan-body ${isOn ? 'on' : ''}`}
-                        filter={isOn ? 'url(#fan-glow)' : undefined}
-                      />
-                      {/* Fan blades */}
-                      <g className={`fp-fan-blade ${isOn ? 'on' : ''}`} style={{ transformOrigin: `${absX}px ${absY}px` }}>
-                        <line x1={absX} y1={absY - 9} x2={absX} y2={absY + 9} stroke={isOn ? '#22d3ee' : '#475569'} strokeWidth="2" strokeLinecap="round" />
-                        <line x1={absX - 9} y1={absY} x2={absX + 9} y2={absY} stroke={isOn ? '#22d3ee' : '#475569'} strokeWidth="2" strokeLinecap="round" />
-                        <line x1={absX - 6} y1={absY - 6} x2={absX + 6} y2={absY + 6} stroke={isOn ? '#22d3ee' : '#475569'} strokeWidth="1.5" strokeLinecap="round" />
-                        <line x1={absX + 6} y1={absY - 6} x2={absX - 6} y2={absY + 6} stroke={isOn ? '#22d3ee' : '#475569'} strokeWidth="1.5" strokeLinecap="round" />
-                      </g>
-                      {/* Center dot */}
-                      <circle cx={absX} cy={absY} r="2.5" fill={isOn ? '#22d3ee' : '#334155'} />
-                    </g>
-                  );
-                }
-
-                // Light
-                return (
-                  <g
-                    key={deviceId}
-                    className="fp-device"
-                    onClick={() => onToggle(deviceId)}
-                  >
-                    <title>{`${device.name} (${isOn ? 'ON' : 'OFF'}) — Click to toggle`}</title>
-                    {/* Invisible hit area for easier clicking */}
-                    <circle cx={absX} cy={absY} r="20" fill="transparent" />
-                    {/* Light glow area */}
-                    {isOn && (
-                      <circle
-                        cx={absX} cy={absY} r="18"
-                        fill="rgba(251, 191, 36, 0.08)"
-                        className={`fp-light-rays ${isOn ? 'on' : ''}`}
-                      />
-                    )}
-                    {/* Light body */}
-                    <circle
-                      cx={absX} cy={absY} r="7"
-                      className={`fp-light-body ${isOn ? 'on' : ''}`}
-                      filter={isOn ? 'url(#light-glow)' : undefined}
-                    />
-                    {/* Inner dot */}
-                    <circle
-                      cx={absX} cy={absY} r="2.5"
-                      fill={isOn ? '#fbbf24' : '#334155'}
-                    />
-                  </g>
-                );
-              })}
-            </g>
-          ))}
-
-          {/* Doors */}
-          {/* Drawing Room door (bottom) */}
-          <line x1="100" y1="280" x2="150" y2="280" className="fp-door" />
-          {/* Work Room 1 door */}
-          <line x1="260" y1="80" x2="260" y2="110" className="fp-door" />
-          {/* Work Room 2 door */}
-          <line x1="260" y1="200" x2="260" y2="230" className="fp-door" />
-
-          {/* Windows */}
-          {/* Drawing Room windows (left wall) */}
-          <line x1="20" y1="80" x2="20" y2="130" className="fp-window" />
-          <line x1="20" y1="170" x2="20" y2="220" className="fp-window" />
-          {/* Work Room 1 window (top) */}
-          <line x1="320" y1="20" x2="400" y2="20" className="fp-window" />
-          {/* Work Room 2 window (bottom) */}
-          <line x1="320" y1="280" x2="400" y2="280" className="fp-window" />
-
-          {/* Entry label */}
-          <text x="125" y="302" fill="#475569" fontSize="9" fontFamily="Inter, sans-serif" textAnchor="middle" fontWeight="500">
-            ENTRY ↑
-          </text>
-        </svg>
-      </div>
-
-      {/* Legend */}
-      <div className="fp-legend">
-        <div className="fp-legend-item">
-          <div className="fp-legend-dot" style={{ background: 'var(--cyan)' }} />
-          <span>Fan</span>
+                {device.type === "fan" ? renderFanIcon(isOn) : renderLightIcon(isOn)}
+                {/* Tooltip */}
+                <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] font-medium text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-md z-30">
+                  {device.name} - {isOn ? `${state.wattage}W` : "Off"}
+                </span>
+              </button>
+            );
+          })}
         </div>
-        <div className="fp-legend-item">
-          <div className="fp-legend-dot" style={{ background: 'var(--amber)' }} />
-          <span>Light</span>
-        </div>
-        <div className="fp-legend-item">
-          <div className="fp-legend-dot" style={{ background: 'var(--amber)', opacity: 0.4 }} />
-          <span>Door</span>
-        </div>
-        <div className="fp-legend-item">
-          <div className="fp-legend-dot" style={{ background: 'var(--cyan)', opacity: 0.25 }} />
-          <span>Window</span>
+
+        {/* Work Rooms wrapper (Col span 3, stacked vertically to form L-shape layout feel) */}
+        <div className="md:col-span-3 flex flex-col gap-4">
+          {/* Work Room 1 */}
+          <div className={`relative flex-1 border-2 rounded-2xl p-4 transition-all duration-300 ${ROOM_LAYOUTS.workroom1.color} ${ROOM_LAYOUTS.workroom1.bg}`}>
+            <div className="absolute top-3 left-4 flex flex-col z-10">
+              <span className={`text-sm font-bold uppercase tracking-wider ${ROOM_LAYOUTS.workroom1.accent}`}>Work Room 1</span>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">Developer bay</span>
+            </div>
+
+            {ROOM_LAYOUTS.workroom1.devices.map((device) => {
+              const state = getDeviceState(device.id);
+              const isOn = state.status === "on";
+              
+              return (
+                <button
+                  key={device.id}
+                  onClick={() => toggleDevice(device.id)}
+                  className={`absolute transform -translate-x-1/2 -translate-y-1/2 p-2.5 rounded-full transition-all duration-300 cursor-pointer outline-none border focus:ring-2 focus:ring-amber-400/50 group
+                    ${isOn 
+                      ? "bg-amber-100/80 border-amber-300 dark:bg-amber-950/40 dark:border-amber-700/60 light-glow" 
+                      : "bg-white/80 border-gray-200 hover:border-gray-300 dark:bg-gray-800/80 dark:border-gray-700 hover:dark:border-gray-600"
+                    }`}
+                  style={{ left: `${device.x}%`, top: `${device.y}%` }}
+                  title={`${device.name} (${state.status.toUpperCase()})`}
+                >
+                  {device.type === "fan" ? renderFanIcon(isOn) : renderLightIcon(isOn)}
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] font-medium text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-md z-30">
+                    {device.name} - {isOn ? `${state.wattage}W` : "Off"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Work Room 2 */}
+          <div className={`relative flex-1 border-2 rounded-2xl p-4 transition-all duration-300 ${ROOM_LAYOUTS.workroom2.color} ${ROOM_LAYOUTS.workroom2.bg}`}>
+            <div className="absolute top-3 left-4 flex flex-col z-10">
+              <span className={`text-sm font-bold uppercase tracking-wider ${ROOM_LAYOUTS.workroom2.accent}`}>Work Room 2</span>
+              <span className="text-[10px] text-gray-400 dark:text-gray-500">Design bay</span>
+            </div>
+
+            {ROOM_LAYOUTS.workroom2.devices.map((device) => {
+              const state = getDeviceState(device.id);
+              const isOn = state.status === "on";
+              
+              return (
+                <button
+                  key={device.id}
+                  onClick={() => toggleDevice(device.id)}
+                  className={`absolute transform -translate-x-1/2 -translate-y-1/2 p-2.5 rounded-full transition-all duration-300 cursor-pointer outline-none border focus:ring-2 focus:ring-amber-400/50 group
+                    ${isOn 
+                      ? "bg-amber-100/80 border-amber-300 dark:bg-amber-950/40 dark:border-amber-700/60 light-glow" 
+                      : "bg-white/80 border-gray-200 hover:border-gray-300 dark:bg-gray-800/80 dark:border-gray-700 hover:dark:border-gray-600"
+                    }`}
+                  style={{ left: `${device.x}%`, top: `${device.y}%` }}
+                  title={`${device.name} (${state.status.toUpperCase()})`}
+                >
+                  {device.type === "fan" ? renderFanIcon(isOn) : renderLightIcon(isOn)}
+                  <span className="pointer-events-none absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2 py-1 text-[10px] font-medium text-white bg-gray-900 rounded opacity-0 group-hover:opacity-100 transition-opacity duration-200 whitespace-nowrap shadow-md z-30">
+                    {device.name} - {isOn ? `${state.wattage}W` : "Off"}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </div>
